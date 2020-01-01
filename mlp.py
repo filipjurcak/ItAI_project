@@ -4,6 +4,17 @@ from utils import show_data, show_history
 np.set_printoptions(suppress=True)
 
 
+class TrainingHistory:
+    def __init__(self):
+        self.history = {'loss': [], 'val_loss': []}
+
+    def add_training_error(self, error):
+        self.history['loss'].append(error)
+
+    def add_validation_error(self, error):
+        self.history['val_loss'].append(error)
+
+
 class MLP:
     def __init__(self, layers=(2, 16, 1), activation_functions=("tanh", "linear"), debug=False):
         assert len(layers) - 1 == len(activation_functions)
@@ -16,11 +27,6 @@ class MLP:
             np.random.randn(rows, cols + 1) if rows != 1 else np.random.randn(cols)
             for rows, cols in weight_matrices_dims
         ]
-
-        # self.weights = [
-        #     np.random.randn(self.hidden_layer_dim, self.input_dim + 1),  # bias in input layer
-        #     np.random.randn(self.hidden_layer_dim)  # + 1 bias in hidden layer
-        # ]
         self.activation_functions = activation_functions
         data = np.loadtxt('mlp_train.txt')
         self.data = self.add_bias(data)
@@ -31,82 +37,139 @@ class MLP:
         return np.c_[np.ones(data.shape[0]), data]
 
     def train(self, num_epochs=750, alpha=0.01, k_fold=10):
-        for epoch in range(1, num_epochs + 1):
-            if self.debug:
-                print("Epoch no. {} started".format(epoch))
-            error = 0
-            for entry in np.random.permutation(self.data):
-                entry_input = entry[:3]
-                entry_output = entry[3]
+        history = TrainingHistory()
+        for epoch in range(1, num_epochs + 1, k_fold):
+            shuffled_data = np.random.permutation(self.data)
 
-                intermediate_steps = []
-                predicted_output = entry_input
-                for i in range(self.forward_layers):
-                    computed = self.weights[i] @ predicted_output
-                    predicted_output = self.activation_function(self.activation_functions[i], computed)
-                    intermediate_steps.append(computed)
+            # split shuffled data into k_fold groups
+            rows = shuffled_data.shape[0]
+            s = int(rows / k_fold)
+            index = 0
+            indices = []
+            while index < rows - s:
+                indices.append(index)
+                index += s
+            indices.append(rows)
+            ranges = list(zip(indices[:-1], indices[1:]))
 
-                # back_prop = entry_output - predicted_output
-                # for i in reversed(range(self.forward_layers)):
-                #     delta = back_prop * self.derivative_of_activation_function(
-                #         self.activation_functions[i], intermediate_steps[i]
-                #     )
-                #     if i != 0:
-                #         self.weights[i] = self.weights[i] + (
-                #             alpha * np.outer(delta, self.activation_function(
-                #                     self.activation_functions[i], intermediate_steps[i - 1]
-                #                 )
-                #             )
-                #         )
-                #     else:
-                #         self.weights[i] = self.weights[i] + (alpha * (np.outer(delta, entry_input)))
-                #     if type(delta) != np.ndarray:
-                #         delta = np.array([delta])
-                #     back_prop = self.weights[i].T @ delta
+            for idx, rng in enumerate(ranges):
+                print("Epoch no. {} started".format(epoch + idx))
 
-                # delta_out = (entry_output - predicted_output) * intermediate_steps[1] * (1 - intermediate_steps[1])
-                # delta_hid = (delta_out * self.weights[1]) * intermediate_steps[0] * (1 - intermediate_steps[0])
-                # for i in range(self.hidden_layer_dim):
-                #     self.weights[1][i] = self.weights[1][i] + (alpha * delta_out * intermediate_steps[0][i])
-                # for i in range(self.hidden_layer_dim):
-                #     for j in range(self.input_dim + 1):
-                #         self.weights[0][i][j] = self.weights[0][i][j] + (alpha * delta_hid[i] * entry_input[j])
+                validation_set = np.array(shuffled_data[rng[0]:rng[1]])
+                training_set = np.array([row for idx, row in enumerate(shuffled_data) if idx < rng[0] or rng[1] <= idx])
+                training_error = 0
+                for entry in training_set:
+                    entry_input = entry[:3]
+                    entry_output = entry[3]
 
-                # delta_out = entry_output - predicted_output
-                # delta_hid = delta_out * self.weights[1]
-                # for i in range(self.hidden_layer_dim):
-                #     self.weights[1][i] = self.weights[1][i] + (alpha * delta_out * intermediate_steps[0][i])
-                # for i in range(self.hidden_layer_dim):
-                #     for j in range(self.input_dim + 1):
-                #         self.weights[0][i][j] = self.weights[0][i][j] + (alpha * delta_hid[i] * entry_input[j])
+                    intermediate_steps = []
+                    predicted_output = entry_input
+                    for i in range(self.forward_layers):
+                        computed = self.weights[i] @ predicted_output
+                        predicted_output = self.activation_function(self.activation_functions[i], computed)
+                        intermediate_steps.append(computed)
 
-                delta_out = entry_output - predicted_output
-                error += delta_out ** 2
-                # print("error pri idx {} je : {}\n".format(idx, delta_out))
-                # delta_hidden = [0 for _ in range(self.hidden_layer_dim)]
-                # for i in range(self.hidden_layer_dim):
-                #     delta_hidden[i] = (delta_out * self.weights[1][i]) * (intermediate_steps[0][i] * (1 - intermediate_steps[0][i]))
-                # delta_hid = (delta_out * self.weights[1]) * (
-                #         self.activation_function('sigmoid', intermediate_steps[0]) *
-                #         (1 - self.activation_function('sigmoid', intermediate_steps[0]))
-                #     )
-                delta_hid = (delta_out * self.weights[1]) * \
-                            self.derivative_of_activation_function(self.activation_functions[0], intermediate_steps[0])
-                # assert delta_hid == delta_hidden
-                for i in range(self.hidden_layer_dim):
-                    self.weights[1][i] = self.weights[1][i] + (
-                        alpha * delta_out * (
-                            self.activation_function(self.activation_functions[0], intermediate_steps[0][i])
+                    delta_out = entry_output - predicted_output
+                    training_error += delta_out ** 2
+                    delta_hid = (delta_out * self.weights[1]) * \
+                        self.derivative_of_activation_function(self.activation_functions[0], intermediate_steps[0])
+                    for i in range(self.hidden_layer_dim):
+                        self.weights[1][i] = self.weights[1][i] + (
+                            alpha * delta_out * (
+                                self.activation_function(self.activation_functions[0], intermediate_steps[0][i])
+                            )
                         )
-                    )
-                    # self.weights[1][i] = self.weights[1][i] + (alpha * delta_out * (self.activation_function('sigmoid', intermediate_steps[0][i])))
-                for i in range(self.hidden_layer_dim):
-                    for j in range(self.input_dim + 1):
-                        self.weights[0][i][j] = self.weights[0][i][j] + (alpha * delta_hid[i] * entry_input[j])
+                    for i in range(self.hidden_layer_dim):
+                        for j in range(self.input_dim + 1):
+                            self.weights[0][i][j] = self.weights[0][i][j] + (alpha * delta_hid[i] * entry_input[j])
 
-            if self.debug:
-                print("Error after epoch no. {} was: {}".format(epoch, error / self.data.shape[0]))
-                print("Epoch no. {} finished\n".format(epoch))
+                # compute validation error
+                validation_set_input_data = validation_set[:, :3]
+                validation_set_output_data = validation_set[:, 3]
+                validation_error = self.compute_error(validation_set_input_data, validation_set_output_data)
+
+                history.add_training_error(training_error / self.data.shape[0])
+                history.add_validation_error(validation_error)
+
+                print("Epoch no. {} finished\n".format(epoch + idx))
+        return history
+
+
+
+
+            # error = 0
+            # for entry in np.random.permutation(self.data):
+            #     entry_input = entry[:3]
+            #     entry_output = entry[3]
+            #
+            #     intermediate_steps = []
+            #     predicted_output = entry_input
+            #     for i in range(self.forward_layers):
+            #         computed = self.weights[i] @ predicted_output
+            #         predicted_output = self.activation_function(self.activation_functions[i], computed)
+            #         intermediate_steps.append(computed)
+            #
+            #     # back_prop = entry_output - predicted_output
+            #     # for i in reversed(range(self.forward_layers)):
+            #     #     delta = back_prop * self.derivative_of_activation_function(
+            #     #         self.activation_functions[i], intermediate_steps[i]
+            #     #     )
+            #     #     if i != 0:
+            #     #         self.weights[i] = self.weights[i] + (
+            #     #             alpha * np.outer(delta, self.activation_function(
+            #     #                     self.activation_functions[i], intermediate_steps[i - 1]
+            #     #                 )
+            #     #             )
+            #     #         )
+            #     #     else:
+            #     #         self.weights[i] = self.weights[i] + (alpha * (np.outer(delta, entry_input)))
+            #     #     if type(delta) != np.ndarray:
+            #     #         delta = np.array([delta])
+            #     #     back_prop = self.weights[i].T @ delta
+            #
+            #     # delta_out = (entry_output - predicted_output) * intermediate_steps[1] * (1 - intermediate_steps[1])
+            #     # delta_hid = (delta_out * self.weights[1]) * intermediate_steps[0] * (1 - intermediate_steps[0])
+            #     # for i in range(self.hidden_layer_dim):
+            #     #     self.weights[1][i] = self.weights[1][i] + (alpha * delta_out * intermediate_steps[0][i])
+            #     # for i in range(self.hidden_layer_dim):
+            #     #     for j in range(self.input_dim + 1):
+            #     #         self.weights[0][i][j] = self.weights[0][i][j] + (alpha * delta_hid[i] * entry_input[j])
+            #
+            #     # delta_out = entry_output - predicted_output
+            #     # delta_hid = delta_out * self.weights[1]
+            #     # for i in range(self.hidden_layer_dim):
+            #     #     self.weights[1][i] = self.weights[1][i] + (alpha * delta_out * intermediate_steps[0][i])
+            #     # for i in range(self.hidden_layer_dim):
+            #     #     for j in range(self.input_dim + 1):
+            #     #         self.weights[0][i][j] = self.weights[0][i][j] + (alpha * delta_hid[i] * entry_input[j])
+            #
+            #     delta_out = entry_output - predicted_output
+            #     error += delta_out ** 2
+            #     # print("error pri idx {} je : {}\n".format(idx, delta_out))
+            #     # delta_hidden = [0 for _ in range(self.hidden_layer_dim)]
+            #     # for i in range(self.hidden_layer_dim):
+            #     #     delta_hidden[i] = (delta_out * self.weights[1][i]) * (intermediate_steps[0][i] * (1 - intermediate_steps[0][i]))
+            #     # delta_hid = (delta_out * self.weights[1]) * (
+            #     #         self.activation_function('sigmoid', intermediate_steps[0]) *
+            #     #         (1 - self.activation_function('sigmoid', intermediate_steps[0]))
+            #     #     )
+            #     delta_hid = (delta_out * self.weights[1]) * \
+            #                 self.derivative_of_activation_function(self.activation_functions[0], intermediate_steps[0])
+            #     # assert delta_hid == delta_hidden
+            #     for i in range(self.hidden_layer_dim):
+            #         self.weights[1][i] = self.weights[1][i] + (
+            #             alpha * delta_out * (
+            #                 self.activation_function(self.activation_functions[0], intermediate_steps[0][i])
+            #             )
+            #         )
+            #         # self.weights[1][i] = self.weights[1][i] + (alpha * delta_out * (self.activation_function('sigmoid', intermediate_steps[0][i])))
+            #     for i in range(self.hidden_layer_dim):
+            #         for j in range(self.input_dim + 1):
+            #             self.weights[0][i][j] = self.weights[0][i][j] + (alpha * delta_hid[i] * entry_input[j])
+
+            # if self.debug:
+            #     print("Error after epoch no. {} was: {}".format(epoch, error / self.data.shape[0]))
+            #     print("Epoch no. {} finished\n".format(epoch))
 
     @staticmethod
     def activation_function(activation_function, vec):
@@ -151,7 +214,7 @@ class MLP:
         print("Average error on training set was {}\n".format(error))
         return error
 
-    def evaluate_testing(self, file_path):
+    def evaluate(self, file_path):
         data = self.add_bias(np.loadtxt(file_path))
         input_data = data[:, :3]
         output_data = data[:, 3]
@@ -202,61 +265,61 @@ class MLP:
 
 if __name__ == "__main__":
     print("Hi and welcome to my MLP project!\n")
-    evaluate_file = "test.txt"
-    train_data = np.loadtxt('mlp_train.txt')
-    shuffled_data = np.random.permutation(train_data)[:100]
-    np.savetxt(evaluate_file, shuffled_data)
+    # evaluate_file = "test.txt"
+    # train_data = np.loadtxt('mlp_train.txt')
+    # shuffled_data = np.random.permutation(train_data)[:100]
+    # np.savetxt(evaluate_file, shuffled_data)
 
     mlp = MLP(debug=True)
     mlp.show_data()
 
     # UNCOMMENT WHEN YOU WANT TO PLAY AROUND WITH THE MODEL
-    # train_or_load = input("Would you like to train the model or do you want to load previously trained weights?  ("
-    #                       "train | load)\n").lower()
-    # while train_or_load != "train" and train_or_load != "load":
-    #     train_or_load = input("Would you like to train the model or do you want to load previously trained weights?  ("
-    #                           "train | load)\n").lower()
-    # if train_or_load == "train":
-    #     training_history = mlp.train()
-    #     show_history(training_history)
-    # else:
-    #     load_weights_file = input("What is the name of the file which you want to load weights from?\n")
-    #     mlp.load_weights(load_weights_file)
-    #
-    # # evaluate_file = input("What is the name of the file to evaluate the model on?\n")
-    # mlp.evaluate_training()
-    # mlp.evaluate_testing(evaluate_file)
-    #
-    # save_weights = input("Do you want to save weights of the model?   (yes | no)\n").lower()
-    # while save_weights != "yes" and save_weights != "no":
-    #     save_weights = input("Do you want to save weights of the model?   (yes | no)\n").lower()
-    # if save_weights == "yes":
-    #     save_weights_file = input("Please provide file name where the weights should be saved to:\n")
-    #     mlp.save_weights(save_weights_file)
+    train_or_load = input("Would you like to train the model or do you want to load previously trained weights?  ("
+                          "train | load)\n").lower()
+    while train_or_load != "train" and train_or_load != "load":
+        train_or_load = input("Would you like to train the model or do you want to load previously trained weights?  ("
+                              "train | load)\n").lower()
+    if train_or_load == "train":
+        training_history = mlp.train(num_epochs=100)
+        show_history(training_history)
+    else:
+        load_weights_file = input("What is the name of the file which you want to load weights from?\n")
+        mlp.load_weights(load_weights_file)
+
+    evaluate_file = input("What is the name of the file to evaluate the model on?\n")
+    mlp.evaluate_training()
+    mlp.evaluate(evaluate_file)
+
+    save_weights = input("Do you want to save weights of the model?   (yes | no)\n").lower()
+    while save_weights != "yes" and save_weights != "no":
+        save_weights = input("Do you want to save weights of the model?   (yes | no)\n").lower()
+    if save_weights == "yes":
+        save_weights_file = input("Please provide file name where the weights should be saved to:\n")
+        mlp.save_weights(save_weights_file)
 
     # UNCOMMENT WHEN YOU WANT TO FINALLY TEST THE MODEL
     # First round
-    print("First round:")
-    training_history = mlp.train()
-    show_history(training_history)
-    training_error = mlp.evaluate_training()
-    evaluate_file = input("What is the name of the file to evaluate the model on?\n")
-    testing_error = mlp.evaluate_testing(evaluate_file)
-    first_round_error = (training_error * 0.3) + (testing_error * 0.7)
-    print("Total error in first round (training (30%), testing (70%)) was: {}\n".format(first_round_error))
-
-    # Second round
-    print("Second round:")
-    load_weights_file = input("What is the name of the file which you want to load weights from?\n")
-    mlp.load_weights(load_weights_file)
-    training_error = mlp.evaluate_training()
-    testing_error = mlp.evaluate_testing(evaluate_file)
-    second_round_error = (training_error * 0.3) + (testing_error * 0.7)
-    print("Total error in second round (training (30%), testing (70%)) was: {}\n".format(second_round_error))
-
-    err = (first_round_error * 0.7) + (second_round_error * 0.3)
-    print("Total error in both rounds combined (first (70%), error (30%)) was: {}".format(first_round_error))
-    points = 18.0 - (60 * err)
-    print("Points given for the neural net itself are therefore: {}\n".format(round(points, 2)))
+    # print("First round:")
+    # training_history = mlp.train()
+    # show_history(training_history)
+    # training_error_first_round = mlp.evaluate_training()
+    # evaluate_file = input("What is the name of the file to evaluate the model on?\n")
+    # testing_error_first_round = mlp.evaluate(evaluate_file)
+    # first_round_error = (training_error_first_round * 0.3) + (testing_error_first_round * 0.7)
+    # print("Total error in first round (training (30%), testing (70%)) was: {}\n".format(first_round_error))
+    #
+    # # Second round
+    # print("Second round:")
+    # load_weights_file = input("What is the name of the file which you want to load weights from?\n")
+    # mlp.load_weights(load_weights_file)
+    # training_error_second_round = mlp.evaluate_training()
+    # testing_error_second_round = mlp.evaluate(evaluate_file)
+    # second_round_error = (training_error_second_round * 0.3) + (testing_error_second_round * 0.7)
+    # print("Total error in second round (training (30%), testing (70%)) was: {}\n".format(second_round_error))
+    #
+    # err = (first_round_error * 0.7) + (second_round_error * 0.3)
+    # print("Total error in both rounds combined (first (70%), error (30%)) was: {}".format(first_round_error))
+    # points = 18.0 - (60 * err)
+    # print("Points given for the neural net itself are therefore: {}\n".format(round(points, 2)))
 
 
