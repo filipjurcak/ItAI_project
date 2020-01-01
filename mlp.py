@@ -16,7 +16,7 @@ class TrainingHistory:
 
 
 class MLP:
-    def __init__(self, layers=(2, 16, 1), activation_functions=("tanh", "linear"), debug=False):
+    def __init__(self, layers=(2, 16, 1), activation_functions=("tanh", "linear")):
         assert len(layers) - 1 == len(activation_functions)
         self.input_dim = layers[0]
         self.output_dim = layers[-1]
@@ -30,7 +30,6 @@ class MLP:
         self.activation_functions = activation_functions
         data = np.loadtxt('mlp_train.txt')
         self.data = self.add_bias(data)
-        self.debug = debug
 
     @staticmethod
     def add_bias(data):
@@ -167,10 +166,6 @@ class MLP:
             #         for j in range(self.input_dim + 1):
             #             self.weights[0][i][j] = self.weights[0][i][j] + (alpha * delta_hid[i] * entry_input[j])
 
-            # if self.debug:
-            #     print("Error after epoch no. {} was: {}".format(epoch, error / self.data.shape[0]))
-            #     print("Epoch no. {} finished\n".format(epoch))
-
     @staticmethod
     def activation_function(activation_function, vec):
         if activation_function == 'sigmoid':
@@ -220,12 +215,6 @@ class MLP:
         output_data = data[:, 3]
         error = self.compute_error(input_data, output_data)
 
-        if self.debug and error >= 0.2:
-            print("High training error, please see what's happening:")
-            print(input_data)
-            print(output_data)
-            print(np.array(list(map(self.predict, input_data))))
-
         print("Average error on test set was {}\n".format(error))
         return error
 
@@ -265,12 +254,8 @@ class MLP:
 
 if __name__ == "__main__":
     print("Hi and welcome to my MLP project!\n")
-    # evaluate_file = "test.txt"
-    # train_data = np.loadtxt('mlp_train.txt')
-    # shuffled_data = np.random.permutation(train_data)[:100]
-    # np.savetxt(evaluate_file, shuffled_data)
 
-    mlp = MLP(debug=True)
+    mlp = MLP()
     mlp.show_data()
 
     # UNCOMMENT WHEN YOU WANT TO PLAY AROUND WITH THE MODEL
