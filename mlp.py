@@ -1,5 +1,6 @@
 import numpy as np
 from utils import show_data, show_history
+import time
 
 np.set_printoptions(suppress=True)
 
@@ -21,24 +22,23 @@ class MLP:
         self.forward_layers = len(layers) - 1
         weight_matrices_dims = list(zip(layers[1:], layers[:-1]))
         self.weights = [
-            np.random.randn(rows, cols + 1) if rows != 1 else np.random.randn(cols)
+            np.random.randn(rows, cols + 1) if rows != 1 else np.random.randn(cols + 1)
             for rows, cols in weight_matrices_dims
         ]
         self.activation_functions = activation_functions
-        data = np.loadtxt('mlp_train.txt')
-        self.data = self.add_bias(data)
+        self.data = np.loadtxt('mlp_train.txt')
 
     @staticmethod
-    def add_bias(data):
-        return np.c_[np.ones(data.shape[0]), data]
+    def add_bias(x):  # x is a vector
+        return np.concatenate(([1], x))
 
-    def train(self, num_epochs=500, alpha=0.01, k_fold=10):
+    def train(self, num_epochs=1000, alpha=0.01, k_fold=10):
         history = TrainingHistory()
         for epoch in range(1, num_epochs + 1, k_fold):
             shuffled_data = np.random.permutation(self.data)
 
             # create ranges for k-fold groups
-            rows = shuffled_data.shape[0]
+            rows, cols = shuffled_data.shape
             s = int(rows / k_fold)
             index = 0
             indices = []
@@ -58,14 +58,15 @@ class MLP:
                 # train the model on the training set
                 training_error = 0
                 for entry in training_set:
-                    entry_input = entry[:3]
-                    entry_output = entry[3]
+                    entry_input = entry[:cols - 1]
+                    entry_output = entry[cols - 1]
 
                     # forward propagation
                     intermediate_steps = []
                     predicted_output = entry_input
                     for i in range(self.forward_layers):
-                        computed = self.weights[i] @ predicted_output
+                        with_bias = self.add_bias(predicted_output)
+                        computed = self.weights[i] @ with_bias
                         predicted_output = self.activation_function(self.activation_functions[i], computed)
                         intermediate_steps.append(computed)
 
@@ -73,27 +74,36 @@ class MLP:
                     back_prop = entry_output - predicted_output
                     training_error += back_prop ** 2
                     for i in reversed(range(self.forward_layers)):
+                        if i == self.forward_layers - 1:
+                            computed = intermediate_steps[i]
+                        else:
+                            computed = self.add_bias(intermediate_steps[i])
                         delta = back_prop * self.derivative_of_activation_function(
-                            self.activation_functions[i], intermediate_steps[i]
+                            self.activation_functions[i], computed
                         )
+                        # remove bias weight from delta only from hidden layers and not output layer
+                        if i != self.forward_layers - 1:
+                            delta = np.array(delta[1:])
                         if i != 0:
                             self.weights[i] = self.weights[i] + (
                                 alpha * np.outer(delta, self.activation_function(
-                                        self.activation_functions[i - 1], intermediate_steps[i - 1]
+                                        self.activation_functions[i - 1], self.add_bias(intermediate_steps[i - 1])
                                     )
                                 )
                             )
-                        else:
-                            self.weights[i] = self.weights[i] + (alpha * (np.outer(delta, entry_input)))
+                        else:  # special case, since there is no activation function for input layer
+                            self.weights[i] = self.weights[i] + (alpha * (np.outer(delta, self.add_bias(entry_input))))
                         if type(delta) != np.ndarray:
                             delta = np.array([delta])
                         back_prop = self.weights[i].T @ delta
-                        if self.weights[i].shape[0] == 1:
+
+                        # this reshape is needed if the output of the NN should be a single number instead of 1x1 matrix
+                        if i == self.forward_layers - 1 and self.weights[i].shape[0] == 1:
                             self.weights[i] = self.weights[i].reshape(self.weights[i].shape[1])
 
                 # compute validation error
-                validation_set_input_data = validation_set[:, :3]
-                validation_set_output_data = validation_set[:, 3]
+                validation_set_input_data = validation_set[:, :cols - 1]
+                validation_set_output_data = validation_set[:, cols - 1]
                 validation_error = self.compute_error(validation_set_input_data, validation_set_output_data)
 
                 # add errors to training history
@@ -129,10 +139,11 @@ class MLP:
             NotImplementedError("Activation function {} not implemented\n".format(activation_function))
 
     # just computes forward propagation
-    def predict(self, x: np.array):  # x is np 2D vector
+    def predict(self, x: np.array):  # x is vector
         output = x
         for i in range(self.forward_layers):
-            output = self.activation_function(self.activation_functions[i], self.weights[i] @ output)
+            with_bias = self.add_bias(output)
+            output = self.activation_function(self.activation_functions[i], self.weights[i] @ with_bias)
         return output
 
     def compute_error(self, input_data, output_data):
@@ -140,17 +151,19 @@ class MLP:
         return np.mean((predicted - output_data) ** 2)
 
     def evaluate_training(self):
-        input_data = self.data[:, :3]
-        output_data = self.data[:, 3]
+        cols = self.data.shape[1]
+        input_data = self.data[:, :cols - 1]
+        output_data = self.data[:, cols - 1]
         error = self.compute_error(input_data, output_data)
 
         print("Average error on training set was {}\n".format(error))
         return error
 
     def evaluate(self, file_path):
-        data = self.add_bias(np.loadtxt(file_path))
-        input_data = data[:, :3]
-        output_data = data[:, 3]
+        data = np.loadtxt(file_path)
+        cols = data.shape[1]
+        input_data = data[:, :cols - 1]
+        output_data = data[:, cols - 1]
         error = self.compute_error(input_data, output_data)
 
         print("Average error on test set was {}\n".format(error))
@@ -187,7 +200,8 @@ class MLP:
             self.weights = weights
 
     def show_data(self):
-        show_data(self.data[:, 1:3], self.data[:, 3])
+        cols = self.data.shape[1]
+        show_data(self.data[:, :cols - 1], self.data[:, cols - 1])
 
 
 if __name__ == "__main__":
@@ -203,7 +217,10 @@ if __name__ == "__main__":
         train_or_load = input("Would you like to train the model or do you want to load previously trained weights?  ("
                               "train | load)\n").lower()
     if train_or_load == "train":
-        training_history = mlp.train()
+        start = time.time()
+        training_history = mlp.train(num_epochs=1000)
+        end = time.time()
+        print("Time spent on training the model: {}".format(end - start))
         show_history(training_history)
     else:
         load_weights_file = input("What is the name of the file which you want to load weights from?\n")
