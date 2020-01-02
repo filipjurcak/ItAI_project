@@ -19,10 +19,12 @@ class TrainingHistory:
 class MLP:
     def __init__(self, layers=(2, 16, 8, 1), activation_functions=("tanh", "tanh", "linear")):
         assert len(layers) - 1 == len(activation_functions)
+        self.layers = layers
         self.forward_layers = len(layers) - 1
-        self.weight_matrices_dims = list(zip(layers[1:], layers[:-1]))
+        layers_with_bias = list(x + 1 for x in layers[:-1])
+        self.weight_matrices_dims = list(zip(layers[1:], layers_with_bias))
         self.weights = [
-            np.random.randn(rows, cols + 1) if rows != 1 else np.random.randn(cols + 1)
+            np.random.randn(rows, cols) if rows != 1 else np.random.randn(cols)
             for rows, cols in self.weight_matrices_dims
         ]
         self.activation_functions = activation_functions
@@ -192,35 +194,40 @@ class MLP:
 
     def save_weights(self, file_path):
         with open(file_path, 'w') as outfile:
-            # first line in weights' file is number of weight matrices
-            outfile.write("{}\n".format(len(self.weights)))
+            # layers of the network are stored in the first line
+            outfile.write("{}\n".format(self.layers))
+            # activation functions are in second line
+            outfile.write("{}\n".format(" ".join(self.activation_functions)))
             for weights in self.weights:
-                # we store the shape of all weight matrices so we can reconstruct it
-                outfile.write("{}\n".format(weights.shape))
-                np.savetxt(outfile, weights)
+                # store the weight matrix
+                if len(weights.shape) == 2:  # weights is a matrix
+                    np.savetxt(outfile, weights)
+                else:  # weight is a vector, saving as a row vector for loading purposes
+                    np.savetxt(outfile, weights.reshape(1, weights.shape[0]))
 
     def load_weights(self, file_path):
         with open(file_path) as file:
-            no_weights = int(file.readline())  # first line in weights' file is number of weight matrices
+            # first line in weights' file are layers of the networks, removes parentheses and endline
+            layers_splitted = file.readline()[1:-2].split(",")
+            self.layers = tuple(map(int, layers_splitted))
+            self.forward_layers = len(self.layers) - 1
+            # activation functions are in the second line, also remove endline
+            activation_functions_string = file.readline()[:-1]
+            self.activation_functions = tuple(activation_functions_string.split(" "))
+            layers_with_bias = list(x + 1 for x in self.layers[:-1])
+            self.weight_matrices_dims = list(zip(self.layers[1:], layers_with_bias))
             weights = []
-            for i in range(no_weights):
+            for i in range(self.forward_layers):
                 layer_weights = []
-                # for each weight matrix the first line in the weight matrix description is its shape
-                shape = file.readline()
-                # removes parenthesis and end line character and splits shape into dimensions
-                shape_splitted = shape[1:-2].split(",")
-                assert len(shape_splitted) == 2  # all weight matrices should be 2D
-                if shape_splitted[1] == '':  # shape of numpy vector is (x,), which we interpret as (x, 1)
-                    shape_splitted[1] = '1'
-                [rows, cols] = list(map(int, shape_splitted))
+                rows, cols = self.weight_matrices_dims[i]
                 for j in range(rows):
                     line = file.readline()
                     w = list(map(float, line.split()))
                     assert len(w) == cols  # all rows in matrix should have the same length
-                    if cols == 1:
-                        layer_weights.append(w[0])
-                    else:
+                    if rows != 1:
                         layer_weights.append(np.array(w))
+                    else:
+                        layer_weights = np.array(w)
                 weights.append(np.array(layer_weights))
             self.weights = weights
 
