@@ -233,7 +233,7 @@ class MLP:
 
     def reset_weights(self):
         self.weights = [
-            np.random.randn(rows, cols + 1) if rows != 1 else np.random.randn(cols + 1)
+            np.random.randn(rows, cols) if rows != 1 else np.random.randn(cols)
             for rows, cols in self.weight_matrices_dims
         ]
 
