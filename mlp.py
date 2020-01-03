@@ -281,8 +281,8 @@ if __name__ == "__main__":
     #     load_weights_file = input("What is the name of the file which you want to load weights from?\n")
     #     mlp.load_weights(load_weights_file)
     #
-    # evaluate_file = input("What is the name of the file to evaluate the model on?\n")
     # mlp.evaluate_training()
+    # evaluate_file = input("What is the name of the file to evaluate the model on?\n")
     # mlp.evaluate(evaluate_file)
     #
     # save_weights = input("Do you want to save weights of the model?   (yes | no)\n").lower()
