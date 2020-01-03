@@ -108,7 +108,7 @@ class MLP:
         return history
 
     # method used to check how our method performs
-    def kfold(self, k=5, num_epochs=200):
+    def kfold(self, k=5, num_epochs=200, alpha=0.01):
         shuffled_data = np.random.permutation(self.data)
         # create ranges for k-fold groups
         rows, cols = shuffled_data.shape
@@ -129,7 +129,12 @@ class MLP:
             validation_set = np.array(shuffled_data[rng[0]:rng[1]])
             training_set = np.array([row for idx, row in enumerate(shuffled_data) if idx < rng[0] or rng[1] <= idx])
             # train model on sets given
-            history = self.train(num_epochs=num_epochs, training_set=training_set, validation_set=validation_set)
+            history = self.train(
+                alpha=alpha,
+                num_epochs=num_epochs,
+                training_set=training_set,
+                validation_set=validation_set
+            )
             validation_error = history.history['val_loss'][-1]
             validation_errors.append(validation_error)
 
