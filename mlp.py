@@ -34,7 +34,8 @@ class MLP:
     def add_bias(x):  # x is a vector
         return np.concatenate(([1], x))
 
-    def train(self, num_epochs=1000, alpha=0.01, validation_set_size=0.2, training_set=None, validation_set=None):
+    def train(self, num_epochs=1000, alpha=0.01, validation_set_size=0.2, training_set=None, validation_set=None,
+              clipnorm=5.0):
         history = TrainingHistory()
         self.print_progress_bar(0, num_epochs)
 
@@ -75,6 +76,9 @@ class MLP:
                     delta = back_prop * self.derivative_of_activation_function(
                         self.activation_functions[i], computed
                     )
+                    # gradient clipping
+                    if np.linalg.norm(delta) >= clipnorm:
+                        delta /= np.linalg.norm(delta)
                     # remove bias weight from delta only from hidden layers and not output layer
                     if i != self.forward_layers - 1:
                         delta = np.array(delta[1:])
