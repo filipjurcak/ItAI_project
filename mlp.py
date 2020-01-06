@@ -17,7 +17,7 @@ class TrainingHistory:
 
 
 class MLP:
-    def __init__(self, layers=(2, 16, 8, 1), activation_functions=("tanh", "tanh", "linear")):
+    def __init__(self, layers=(2, 32, 32, 1), activation_functions=("tanh", "tanh", "linear")):
         assert len(layers) - 1 == len(activation_functions)
         self.layers = layers
         self.forward_layers = len(layers) - 1
